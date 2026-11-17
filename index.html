@@ -51,6 +51,17 @@ tr.grp td{background:var(--bg);font-weight:600;text-align:left;white-space:norma
 .lg{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:4px 8px;font:500 11px var(--font-b);display:flex;gap:8px;flex-wrap:wrap;max-width:230px}
 .lg span{white-space:nowrap}
 .rp{width:10px;height:10px;border-radius:50%;background:#00e5ff;border:2px solid #003b44}
+.mapcol{display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.ph{width:22px;height:18px;border-radius:4px;background:#fff;border:2px solid #10201a;position:relative;box-shadow:0 1px 3px rgba(0,0,0,.5);cursor:pointer}
+.ph::after{content:"";position:absolute;left:5px;top:3px;width:8px;height:8px;border-radius:50%;background:#10201a}
+.zp{font:700 10px var(--font-b);color:#fff;background:#6a3d0a;border:1.5px solid #fff;border-radius:3px;padding:0 4px;white-space:nowrap}
+#fotoBox{position:absolute;inset:0;z-index:1100;background:var(--panel);display:flex;flex-direction:column;gap:8px;padding-block:10px;overflow:auto}
+#fotoBox img{max-width:100%;max-height:58vh;object-fit:contain;border-radius:8px;background:#000;align-self:center}
+details.cl{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+details.cl summary{cursor:pointer;font-weight:600;font-size:13px;margin-bottom:8px}
+#printArea{display:none}
+@media print{html,body{height:auto;overflow:visible;background:#fff;color:#000}#app{display:none}#printArea{display:block;padding:12mm;font:11px/1.35 Arial,sans-serif;color:#000}
+  #printArea h1{font:700 18px Arial,sans-serif;margin:0 0 2px}#printArea h2{font:700 13px Arial,sans-serif;margin:14px 0 6px}#printArea table{font-size:10px}#printArea th,#printArea td{border-bottom:1px solid #999;padding:3px 5px;color:#000}#printArea th{color:#000}}
 #tabs{display:flex;border-bottom:1px solid var(--line)}
 .tab{flex:1;border:0;background:none;padding:11px 2px;font-weight:600;font-family:var(--font-d);font-size:13px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
 .tab[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
@@ -790,6 +801,21 @@ svg.leaflet-image-layer.leaflet-interactive path {
         <button class="btn pri" id="bRuDone">Cerrar</button>
       </div>
     </div>
+    <div id="cotabar" class="mbar gut" hidden>
+      <div class="row">
+        <span id="coMsg" style="flex:1 1 100%;font-size:13px">Punto de cota</span>
+        <input class="inp" id="coZ" type="number" step="0.01" inputmode="decimal" style="flex:1 1 110px;width:auto" placeholder="Cota en m" aria-label="Cota del punto en metros">
+        <button class="btn" id="bCoGps" hidden>Usar mi posición</button>
+        <button class="btn pri" id="bCoSave">Guardar</button>
+        <button class="btn" id="bCoDone">Cerrar</button>
+      </div>
+    </div>
+    <div id="fotoBox" class="gut" hidden>
+      <img id="fotoImg" alt="Foto tomada en el proyecto">
+      <div id="fotoMeta" class="note" style="margin:0"></div>
+      <input class="inp" id="fotoNote" placeholder="Nota de la foto" aria-label="Nota de la foto">
+      <div class="row"><button class="btn pri" id="bFoClose">Cerrar</button><button class="btn" id="bFoGo">Ver en el mapa</button><button class="btn danger" id="bFoDel">Borrar foto</button></div>
+    </div>
     <div id="tracebar" class="mbar gut" hidden>
       <div class="row">
         <span id="trMsg" style="flex:1 1 100%;font-size:13.5px;font-weight:600">Trazador</span>
@@ -814,6 +840,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
   </section>
 </div>
 
+<input type="file" id="fotoIn" accept="image/*" capture="environment" hidden>
+<div id="printArea"></div>
 <script>/* @preserve
  * Leaflet 1.9.4, a JS library for interactive maps. https://leafletjs.com
  * (c) 2010-2023 Vladimir Agafonkin, (c) 2010-2011 CloudMade
@@ -843,13 +871,20 @@ const m2ll=p=>[B[0]*p[0]+B[1]*p[1]+B[2], A[0]*p[0]+A[1]*p[1]+A[2]];
 const ll2m=(lat,lon)=>{const dl=lon-A[2],da=lat-B[2];return [(dl*B[1]-A[1]*da)/det,(A[0]*da-B[0]*dl)/det];};
 const inSite=p=>p[0]>=-60&&p[0]<=DATA.size[0]+60&&p[1]>=-60&&p[1]<=DATA.size[1]+60;
 
-/* ---------- terrain model from the survey points ---------- */
-const DEM=(function(){const d=DATA.dem,bin=atob(d.b64),u=new Uint16Array(bin.length/2);
-  for(let i=0;i<u.length;i++)u[i]=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);
-  const g=(i,j)=>{const v=u[j*d.nx+i];return v?d.z0+(v-1)/10:NaN;};
-  return {g,nx:d.nx,ny:d.ny,cell:d.cell,at(x,y){const i=x/d.cell,j=y/d.cell,i0=Math.floor(i),j0=Math.floor(j);
-    if(i0<0||j0<0||i0>=d.nx-1||j0>=d.ny-1)return NaN;const fx=i-i0,fy=j-j0;
-    return g(i0,j0)*(1-fx)*(1-fy)+g(i0+1,j0)*fx*(1-fy)+g(i0,j0+1)*(1-fx)*fy+g(i0+1,j0+1)*fx*fy;}};})();
+/* ---------- terrain model: survey points of the plan, corrected by heights the owner enters in the field ---------- */
+const DEM=(function(){const d=DATA.dem,bin=atob(d.b64),n=d.nx*d.ny,B0=new Float32Array(n);
+  for(let i=0;i<n;i++){const v=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);B0[i]=v?d.z0+(v-1)/10:NaN;}
+  let G=B0;
+  const bil=(A,x,y)=>{const i=x/d.cell,j=y/d.cell,i0=Math.floor(i),j0=Math.floor(j);if(i0<0||j0<0||i0>=d.nx-1||j0>=d.ny-1)return NaN;const fx=i-i0,fy=j-j0,k=j0*d.nx+i0;
+    return A[k]*(1-fx)*(1-fy)+A[k+1]*fx*(1-fy)+A[k+d.nx]*(1-fx)*fy+A[k+d.nx+1]*fx*fy;};
+  return {nx:d.nx,ny:d.ny,cell:d.cell,g:(i,j)=>(i<0||j<0||i>=d.nx||j>=d.ny)?NaN:G[j*d.nx+i],base:(x,y)=>bil(B0,x,y),at:(x,y)=>bil(G,x,y),
+    /* each field point pulls the surface to its height, fading to nothing 45 m away; where the plan has no points, three or more field points nearby make the surface */
+    rebuild(pts){pts=(pts||[]).filter(q=>q&&q.p&&isFinite(q.z));if(!pts.length){G=B0;return;}const R=45,P=pts.map(q=>({x:q.p[0],y:q.p[1],z:+q.z,r:+q.z-bil(B0,q.p[0],q.p[1])}));G=new Float32Array(B0);
+      let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;P.forEach(q=>{x0=Math.min(x0,q.x);x1=Math.max(x1,q.x);y0=Math.min(y0,q.y);y1=Math.max(y1,q.y);});
+      const i0=Math.max(0,Math.floor((x0-R)/d.cell)),i1=Math.min(d.nx-1,Math.ceil((x1+R)/d.cell)),j0=Math.max(0,Math.floor((y0-R)/d.cell)),j1=Math.min(d.ny-1,Math.ceil((y1+R)/d.cell));
+      for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++){const k=j*d.nx+i,x=i*d.cell,y=j*d.cell,b=B0[k];let sw=0,sz=0,swr=0,sr=0,mx=0,nn=0;
+        for(const q of P){const dd=Math.hypot(q.x-x,q.y-y);if(dd>=R)continue;const f=(1-dd/R)*(1-dd/R),w=f/(dd*dd+0.25);nn++;sw+=w;sz+=w*q.z;if(isFinite(q.r)){swr+=w;sr+=w*q.r;}if(f>mx)mx=f;}
+        if(!nn)continue;if(isFinite(b)){if(swr>0)G[k]=b+(sr/swr)*mx;}else if(nn>=3)G[k]=sz/sw;}}};})();
 
 /* ---------- who is looking: the full tool only on a phone that opened the private link ---------- */
 const AK='rv-admin:'+(DATA.id||'rv');let OWNER=!WEB,PREV=false;
@@ -878,14 +913,15 @@ const GN={a:'Área',l:'Línea',p:'Punto'};
 
 /* ---------- state ---------- */
 const KEY='rv-visor-v2:'+(DATA.id||'rv');
-const DEF={step:10,t1:12,t2:20,width:5.2,surf:[{n:'Afirmado',p:45000},{n:'Estabilizado',p:70000},{n:'Placa huella',p:280000}],use:[0,1,2]};
-const LAY={sat:WEB,img:true,lots:true,status:true,axes:true,feats:true,curvas:true};
+const DEF={step:10,t1:12,t2:20,width:5.2,surf:[{n:'Afirmado',p:45000},{n:'Estabilizado',p:70000},{n:'Placa huella',p:280000}],use:[0,1,2],cun:{lados:0,p:0},items:[{n:'Alcantarilla',q:0,p:0},{n:'Obra de arte',q:0,p:0}]};
+const LAY={sat:WEB,img:true,lots:true,status:true,axes:true,feats:true,curvas:true,fotos:true};
 const PIDS=(DATA.patches||[]).map(p=>p.id);
-const fresh=()=>({done:PIDS.slice(),axes:clone(DATA.axes),lots:clone(DATA.lots).map(l=>Object.assign(l,{st:l.st||'d'})),feats:clone(DATA.feats0||[]),cats:{},showSt:false,prices:clone(DATA.prices),cfg:clone(DEF),layers:clone(LAY),op:WEB?0.8:1,edited:false});
+const fresh=()=>({done:PIDS.slice(),axes:clone(DATA.axes),lots:clone(DATA.lots).map(l=>Object.assign(l,{st:l.st||'d'})),feats:clone(DATA.feats0||[]),cats:{},showSt:false,photos:[],zpts:[],prices:clone(DATA.prices),cfg:clone(DEF),layers:clone(LAY),op:WEB?0.8:1,edited:false});
 let S=fresh();
 function load(o){if(!o||!Array.isArray(o.axes)||!Array.isArray(o.lots))return false;const f=fresh();
   S=Object.assign(f,o);S.cfg=Object.assign(clone(DEF),o.cfg||{});S.layers=Object.assign(clone(LAY),o.layers||{});if(!WEB)S.layers.sat=false;
   if(!Array.isArray(o.feats)){S.feats=clone(DATA.feats0||[]);(o.zones||[]).forEach(z=>S.feats.push({c:'zona',n:z.n,g:'a',r:z.r}));(o.drains||[]).forEach(z=>S.feats.push({c:'escorrentia',n:z.n,g:'l',r:z.p}));}
+  S.photos=Array.isArray(o.photos)?o.photos:[];S.zpts=Array.isArray(o.zpts)?o.zpts.filter(q=>q&&Array.isArray(q.p)&&isFinite(q.z)):[];if(!S.cfg.cun)S.cfg.cun={lados:0,p:0};if(!Array.isArray(S.cfg.items))S.cfg.items=clone(DEF.items);
   delete S.zones;delete S.drains;S.cats=(o.cats&&typeof o.cats==='object')?o.cats:{};S.showSt=!!o.showSt;
   S.prices=(o.prices&&o.prices.length)?o.prices:clone(DATA.prices);S.done=Array.isArray(o.done)?o.done:[];
   (DATA.patches||[]).forEach(p=>{if(S.done.includes(p.id))return;
@@ -899,6 +935,7 @@ function load(o){if(!o||!Array.isArray(o.axes)||!Array.isArray(o.lots))return fa
 let had=false;if(ADMIN){try{had=load(JSON.parse(localStorage.getItem(KEY)||'null'));}catch(e){}}else{S.op=1;S.layers.curvas=false;}
 let saveOk=true;const save=()=>{if(!ADMIN)return;try{localStorage.setItem(KEY,JSON.stringify(S));saveOk=true;}catch(e){saveOk=false;}};
 if(had)save();
+DEM.rebuild(S.zpts);
 
 /* ---------- geometry ---------- */
 const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
@@ -962,14 +999,14 @@ L.control.zoom({position:'bottomright'}).addTo(map);
 L.control.scale({imperial:false,position:'bottomleft'}).addTo(map);
 let sat=null;if(WEB){sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:18,maxZoom:22,attribution:'Imagen satelital: Esri'});}
 const img=L.imageOverlay(IMG_SRC,llb,{opacity:S.op,pane:'plan'});
-const gFeats=L.layerGroup(),gLots=L.layerGroup(),gAxes=L.layerGroup(),gTrace=L.layerGroup().addTo(map),gRule=L.layerGroup().addTo(map),gEdit=L.layerGroup().addTo(map),gPos=L.layerGroup().addTo(map);
+const gFeats=L.layerGroup(),gLots=L.layerGroup(),gAxes=L.layerGroup(),gPhotos=L.layerGroup(),gCota=L.layerGroup().addTo(map),gTrace=L.layerGroup().addTo(map),gRule=L.layerGroup().addTo(map),gEdit=L.layerGroup().addTo(map),gPos=L.layerGroup().addTo(map);
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const lab=(p,html,anchor)=>L.marker(m2ll(p),{interactive:false,icon:L.divIcon({className:'',html,iconSize:[0,0],iconAnchor:anchor})});
 
 /* contour lines drawn from the terrain model, tile by tile; interval follows the zoom */
 const Curvas=L.GridLayer.extend({createTile(co){const sz=this.getTileSize(),R=window.devicePixelRatio>1?2:1,t=L.DomUtil.create('canvas','leaflet-tile');t.width=sz.x*R;t.height=sz.y*R;
   const b=this._tileCoordsToBounds(co),W=b.getWest(),E=b.getEast(),N=b.getNorth(),So=b.getSouth(),z=co.z;
-  const iv=z>=19?0.5:z>=18?1:z>=17?5:z>=16?10:25,idx=iv<5?5:iv===5?25:iv===10?50:100,st=z>=18?1:z>=17?2:z>=16?3:6,cs=DEM.cell;
+  const iv=z>=20?0.2:z>=19?0.5:z>=18?1:z>=17?5:z>=16?10:25,idx=iv<0.5?1:iv<5?5:iv===5?25:iv===10?50:100,st=z>=18?1:z>=17?2:z>=16?3:6,cs=DEM.cell;
   const c=[ll2m(So,W),ll2m(So,E),ll2m(N,W),ll2m(N,E)],xs=c.map(q=>q[0]),ys=c.map(q=>q[1]);
   const i0=Math.max(0,Math.floor((Math.min(...xs)/cs-1)/st)*st),i1=Math.min(DEM.nx-1-st,Math.ceil(Math.max(...xs)/cs)+1),j0=Math.max(0,Math.floor((Math.min(...ys)/cs-1)/st)*st),j1=Math.min(DEM.ny-1-st,Math.ceil(Math.max(...ys)/cs)+1);
   if(i0>i1||j0>j1)return t;const ctx=t.getContext('2d');ctx.scale(R,R);
@@ -989,18 +1026,21 @@ const Curvas=L.GridLayer.extend({createTile(co){const sz=this.getTileSize(),R=wi
   labs.forEach(l=>{if(l[0]<18||l[1]<10||l[0]>sz.x-18||l[1]>sz.y-10||used.some(u=>Math.hypot(u[0]-l[0],u[1]-l[1])<90))return;used.push(l);
     ctx.save();ctx.translate(l[0],l[1]);ctx.rotate(-BEAR*Math.PI/180);ctx.lineWidth=3;ctx.strokeStyle='rgba(255,255,255,.92)';ctx.strokeText(String(Math.round(l[2])),0,0);ctx.fillStyle='#4a2305';ctx.fillText(String(Math.round(l[2])),0,0);ctx.restore();});
   return t;}});
-const curv=new Curvas({pane:'curvas',minZoom:15,maxZoom:22,updateWhenZooming:false,keepBuffer:1});
+const curv=new Curvas({pane:'curvas',minZoom:15,maxZoom:22,maxNativeZoom:21,updateWhenZooming:false,keepBuffer:1});
 
 /* map buttons: orientation, and a legend for lot states */
 let cmpBtn=null,lgBox=null;
-const Cmp=L.Control.extend({options:{position:'bottomright'},onAdd(){cmpBtn=L.DomUtil.create('button','mapbtn');cmpBtn.type='button';L.DomEvent.disableClickPropagation(cmpBtn);cmpBtn.onclick=()=>setBear(BEAR===180?0:180);updCmp();return cmpBtn;}});
+const Cmp=L.Control.extend({options:{position:'bottomright'},onAdd(){const box=L.DomUtil.create('div','mapcol');L.DomEvent.disableClickPropagation(box);
+  const mk=(txt,fn,lbl)=>{const b=L.DomUtil.create('button','mapbtn',box);b.type='button';b.textContent=txt;if(lbl)b.setAttribute('aria-label',lbl);b.onclick=fn;return b;};
+  if(ADMIN){mk('Foto',()=>takePhoto(),'Tomar una foto y dejarla en este sitio del mapa');mk('Cota',()=>cota.toggle(!cota.on),'Registrar la cota real de un punto');}
+  if(ROT){cmpBtn=mk('',()=>setBear(BEAR===180?0:180));updCmp();}return box;}});
 function updCmp(){if(!cmpBtn)return;cmpBtn.textContent=BEAR===180?'Sur arriba':'Norte arriba';cmpBtn.setAttribute('aria-label','Girar el mapa. Ahora está con el '+(BEAR===180?'sur':'norte')+' arriba');}
 function setBear(v){BEAR=v;try{localStorage.setItem(BK,String(v));}catch(e){}map.setBearing(v);updCmp();curv.redraw();}
-if(ROT)new Cmp().addTo(map);
+new Cmp().addTo(map);
 const Lg=L.Control.extend({options:{position:'bottomleft'},onAdd(){lgBox=L.DomUtil.create('div','lg');lgBox.hidden=true;return lgBox;}});new Lg().addTo(map);
 const stShown=()=>ADMIN?S.layers.status!==false:!!S.showSt;
 
-function applyLayers(){const order=[[sat,'sat'],[img,'img'],[curv,'curvas'],[gFeats,'feats'],[gLots,'lots'],[gAxes,'axes']];
+function applyLayers(){const order=[[sat,'sat'],[img,'img'],[curv,'curvas'],[gFeats,'feats'],[gLots,'lots'],[gAxes,'axes'],[gPhotos,'fotos']];
   order.forEach(([l,k])=>{if(!l)return;const on=!!S.layers[k];if(on&&!map.hasLayer(l))l.addTo(map);if(!on&&map.hasLayer(l))map.removeLayer(l);});img.setOpacity(S.op);}
 let selLot=-1,selAxis=0,selFeat=-1;
 const DASH={escorrentia:'2 7',acueducto:'9 6',sendero:'1 7',lindero:'12 4 2 4'};
@@ -1009,7 +1049,8 @@ function drawFeats(){gFeats.clearLayers();S.feats.forEach((f,i)=>{if(!catOn(f.c)
   if(f.g==='a'){if(f.r.length<3)return;const pg=L.polygon(f.r.map(m2ll),{color:sel?'#00e5ff':col,weight:sel?3.5:2,fillColor:col,fillOpacity:0.28});pg.on('click',pick);gFeats.addLayer(pg);gFeats.addLayer(lab(cen(f.r),tag,[20,8]));}
   else if(f.g==='l'){if(f.r.length<2)return;const ll=f.r.map(m2ll);const hit=L.polyline(ll,{color:col,weight:18,opacity:0.01});hit.on('click',pick);gFeats.addLayer(hit);
     gFeats.addLayer(L.polyline(ll,{color:'#ffffff',weight:sel?8:6,opacity:0.7,interactive:false}));gFeats.addLayer(L.polyline(ll,{color:col,weight:4,dashArray:DASH[f.c]||null,lineCap:'round',interactive:false}));gFeats.addLayer(lab(f.r[0],tag,[-6,8]));}
-  else{if(f.r.length<1)return;const cm=L.circleMarker(m2ll(f.r[0]),{radius:sel?9:7,color:'#fff',weight:2.5,fillColor:col,fillOpacity:1});cm.on('click',pick);gFeats.addLayer(cm);gFeats.addLayer(lab(f.r[0],tag,[-10,8]));}});}
+  else{if(f.r.length<1)return;const cm=L.circleMarker(m2ll(f.r[0]),{radius:sel?9:7,color:'#fff',weight:2.5,fillColor:col,fillOpacity:1});cm.on('click',pick);gFeats.addLayer(cm);gFeats.addLayer(lab(f.r[0],tag,[-10,8]));}});
+  if(ADMIN)S.zpts.forEach(q=>gFeats.addLayer(lab(q.p,'<span class="zp">▲ '+fmt(q.z,1)+'</span>',[14,8])));}
 function drawLots(){gLots.clearLayers();const show=stShown();S.lots.forEach((l,i)=>{if(l.r.length<3)return;const sel=i===selLot,fill=show&&l.st!=='d';
   const pg=L.polygon(l.r.map(m2ll),{color:sel?'#00e5ff':'#143d2c',weight:sel?3.5:1.2,fillColor:STC[l.st]||'#fff',fillOpacity:fill?0.5:0});
   pg.on('click',e=>{if(edit.on&&!edit.drawing){L.DomEvent.stop(e);edit.pick('lot',i);}});gLots.addLayer(pg);
@@ -1020,7 +1061,7 @@ function drawAxes(){gAxes.clearLayers();S.axes.forEach((ax,i)=>{if(ax.p.length<2
   halo.on('click',e=>{if(edit.drawing||!ADMIN||ruler.on)return;L.DomEvent.stop(e);if(edit.on)edit.pick('axis',i);else if(!tr.on){selAxis=i;setCol(false);setTab('vias');drawAxes();}});gAxes.addLayer(halo);
   gAxes.addLayer(L.polyline(ll,{color:css('--road'),weight:5,interactive:false}));
   if(ADMIN)gAxes.addLayer(lab(ax.p[0],'<span class="roadlab">'+esc(ax.n)+'</span>',[-6,8]));});}
-function drawAll(){drawFeats();drawLots();drawAxes();applyLayers();}
+function drawAll(){drawFeats();drawLots();drawAxes();drawPhotos();applyLayers();}
 function redraw(){recalc();drawAll();render();}
 const fMeas=f=>f.g==='a'?fmt(area(f.r))+' m²':f.g==='l'?fmt(lineLen(f.r))+' m':'';
 function fZ(f){if(f.g==='a'){const z=zStats(f.r);return z?fmt(z.mean):'—';}
@@ -1054,19 +1095,26 @@ function describe(p,src,acc){
   else if(near.length>=2&&near[1].d<tol+3){t='Entre '+S.lots[near[0].i].n+' y '+S.lots[near[1].i].n;t2.push('zona común o vía');}
   else if(near.length){t='Zona común';t2.push('lote más cercano '+S.lots[near[0].i].n+' a '+fmt(near[0].d)+' m');}
   else{t='Zona común o reserva';}
-  if(ADMIN&&isFinite(z))t2.push('cota aquí '+fmt(z,1)+' m');
+  if(ADMIN){const zb=zBest(p,src,ax);if(zb)t2.push('cota aquí '+fmt(zb.z,1)+' m'+(zb.how==='gps'?' (estimada con GPS)':zb.how==='eje'?' (eje levantado)':''));}
   if(src==='gps'&&acc)t2.push('GPS ±'+fmt(acc)+' m');
   if(src==='tap')t2.unshift('punto consultado');
   $('where').textContent=t;$('where2').textContent=t2.filter(Boolean).join(' · ');
   if(inside!==selLot&&(src==='tap'||inside>=0)){selLot=inside;drawLots();if(ADMIN&&tab==='lotes'&&src==='tap')render();}}
-function showPos(p,src,acc){gPos.clearLayers();const ll=m2ll(p);
+/* most realistic height for a spot: the surveyed road axis when standing on it, then the terrain model, and where the model has no data the phone's GPS height shifted by the offset learned where both were known */
+function zBest(p,src,ax){const zd=DEM.at(p[0],p[1]),g=(src==='gps'&&gps.last&&gps.last.alt!==null)?gps.last:null;
+  if(g&&isFinite(zd)&&g.acc<=15){const o=zd-g.alt;gps.bias=gps.bias===null?o:gps.bias*0.9+o*0.1;}
+  if(ax&&ax.d<=4&&S.axes[ax.i]){const q=pointAt(S.axes[ax.i].p,ax.s);if(isFinite(q[2]))return {z:q[2],how:'eje'};}
+  if(isFinite(zd))return {z:zd,how:'modelo'};
+  if(g&&gps.bias!==null)return {z:g.alt+gps.bias,how:'gps'};return null;}
+let lastTap=null;
+function showPos(p,src,acc){if(src==='tap')lastTap=p;gPos.clearLayers();const ll=m2ll(p);
   if(src==='gps'&&acc)gPos.addLayer(L.circle(ll,{radius:acc,color:css('--me'),weight:1,fillOpacity:0.12,interactive:false}));
   gPos.addLayer(L.marker(ll,{interactive:false,icon:L.divIcon({className:'',html:'<div class="'+(src==='gps'?'me':'q')+'"></div>',iconSize:[0,0],iconAnchor:[11,11]})}));
-  if(!tr.on&&!edit.on&&!ruler.on)describe(p,src,acc);}
-map.on('click',e=>{if(ruler.on){ruler.add(ll2m(e.latlng.lat,e.latlng.lng));return;}if(edit.on){edit.mapClick(e);return;}if(tr.on||gps.on)return;showPos(ll2m(e.latlng.lat,e.latlng.lng),'tap');});
+  if(!tr.on&&!edit.on&&!ruler.on&&!cota.on)describe(p,src,acc);}
+map.on('click',e=>{if(cota.on){cota.set(ll2m(e.latlng.lat,e.latlng.lng));return;}if(ruler.on){ruler.add(ll2m(e.latlng.lat,e.latlng.lng));return;}if(edit.on){edit.mapClick(e);return;}if(tr.on||gps.on)return;showPos(ll2m(e.latlng.lat,e.latlng.lng),'tap');});
 
 /* ---------- GPS ---------- */
-const gps={on:false,id:null,last:null,first:true,follow:true,subs:[],
+const gps={on:false,id:null,last:null,first:true,follow:true,subs:[],bias:null,
   start(){if(this.on)return true;if(!navigator.geolocation){this.fail();return false;}
     this.first=true;this.had=false;this.on=true;$('bGps').textContent='Detener';$('bGps').classList.add('on');$('where').textContent='Buscando señal GPS…';$('where2').textContent='Permita el acceso a la ubicación si el teléfono lo pregunta.';
     try{this.id=navigator.geolocation.watchPosition(g=>this.fix(g),e=>{if(e&&e.code!==1&&this.had){if(tr.on)tr.ui('Señal GPS perdida. Esperando…');return;}this.stop();this.fail(e);},{enableHighAccuracy:true,maximumAge:1000,timeout:30000});}catch(e){this.stop();this.fail();return false;}
@@ -1078,12 +1126,12 @@ const gps={on:false,id:null,last:null,first:true,follow:true,subs:[],
   fix(g){const p=ll2m(g.coords.latitude,g.coords.longitude);this.last={p,acc:g.coords.accuracy,alt:(typeof g.coords.altitude==='number'&&isFinite(g.coords.altitude))?g.coords.altitude:null,t:g.timestamp||Date.now()};
     this.had=true;showPos(p,'gps',g.coords.accuracy);
     if(this.first){this.first=false;if(inSite(p))map.setView(m2ll(p),19.5);}else if((tr.on||this.follow)&&inSite(p)&&!map.getBounds().pad(-0.2).contains(m2ll(p)))map.panTo(m2ll(p));
-    if(tr.on)tr.fix(this.last);if(edit.on)edit.msg();if(ruler.on)ruler.ui();}};
+    if(tr.on)tr.fix(this.last);if(edit.on)edit.msg();if(ruler.on)ruler.ui();if(cota.on)cota.ui();}};
 $('bGps').onclick=()=>{if(gps.on){if(tr.on){$('where2').textContent='Termine el trazador antes de detener la ubicación.';return;}gps.stop();gPos.clearLayers();}else gps.start();};
 
 /* ---------- trazador: record the walked path, measure every step ---------- */
 const tr={on:false,paused:false,done:false,pts:[],len:0,lock:null,
-  start(){if(edit.on)edit.toggle(false);if(ruler.on)ruler.toggle(false);if(!gps.start())return;this.on=true;this.paused=false;this.done=false;this.pts=[];this.len=0;
+  start(){if(edit.on)edit.toggle(false);if(ruler.on)ruler.toggle(false);if(cota.on)cota.toggle(false);if(!gps.start())return;this.on=true;this.paused=false;this.done=false;this.pts=[];this.len=0;
     $('tracebar').hidden=false;$('bTrace').classList.add('on');this.ui();setCol(false);setTab('vias');
     try{if(navigator.wakeLock)navigator.wakeLock.request('screen').then(l=>{this.lock=l;}).catch(()=>{});}catch(e){}},
   fix(f){if(this.paused||this.done)return;if(f.acc>25){this.ui('Señal débil (±'+fmt(f.acc)+' m). Esperando mejor precisión…');return;}
@@ -1133,7 +1181,7 @@ $('eCat').innerHTML=CATS.map(c=>'<option value="'+c.id+'">'+esc(c.n)+'</option>'
 const edit={on:false,kind:null,idx:-1,vsel:-1,drawing:false,moveAll:false,
   item(){return this.idx<0?null:KIND[this.kind].arr()[this.idx];},
   pts(){return this.item()[KIND[this.kind].k];},
-  toggle(v){if(v&&tr.on)return;if(v&&ruler.on)ruler.toggle(false);if(!v&&this.drawing)this.finishDraw();this.on=v;this.kind=null;this.idx=-1;this.vsel=-1;this.drawing=false;gEdit.clearLayers();$('editbar').hidden=!v;$('bEdit').classList.toggle('on',v);if(v)setCol(true);this.msg();if(!v){save();redraw();}},
+  toggle(v){if(v&&tr.on)return;if(v&&ruler.on)ruler.toggle(false);if(v&&cota.on)cota.toggle(false);if(!v&&this.drawing)this.finishDraw();this.on=v;this.kind=null;this.idx=-1;this.vsel=-1;this.drawing=false;gEdit.clearLayers();$('editbar').hidden=!v;$('bEdit').classList.toggle('on',v);if(v)setCol(true);this.msg();if(!v){save();redraw();}},
   msg(t){if(!this.on)return;const it=this.item();let m;
     if(this.drawing)m=(this.kind==='feat'&&it.g==='p')?'Toque el mapa donde va el punto'+(gps.last?', o use "Punto en mi posición"':'')+'.':'Toque el mapa para marcar cada punto'+(gps.last?', o use "Punto en mi posición" mientras camina':'')+'. Pulse Listo al terminar.';
     else if(it&&this.moveAll){m=kName(this.kind,it)+' '+it.n+': arrastre cualquier punto y se mueve la figura completa.';}
@@ -1197,7 +1245,7 @@ $('bDel').onclick=function(){if(this.dataset.arm!=='1'){this.dataset.arm='1';thi
 
 /* ---------- ruler: distance, height difference and enclosed area between tapped points ---------- */
 const ruler={on:false,pts:[],
-  toggle(v){if(v&&tr.on){$('where2').textContent='Termine el trazador antes de usar la regla.';return;}if(v&&edit.on)edit.toggle(false);this.on=v;this.pts=[];gRule.clearLayers();$('rulerbar').hidden=!v;$('bRuler').classList.toggle('on',v);if(v)setCol(true);else setTimeout(()=>map.invalidateSize(),30);this.ui();},
+  toggle(v){if(v&&tr.on){$('where2').textContent='Termine el trazador antes de usar la regla.';return;}if(v&&edit.on)edit.toggle(false);if(v&&cota.on)cota.toggle(false);this.on=v;this.pts=[];gRule.clearLayers();$('rulerbar').hidden=!v;$('bRuler').classList.toggle('on',v);if(v)setCol(true);else setTimeout(()=>map.invalidateSize(),30);this.ui();},
   add(p){this.pts.push([+p[0].toFixed(2),+p[1].toFixed(2)]);this.draw();this.ui();},
   draw(){gRule.clearLayers();const P=this.pts;if(!P.length)return;const ll=P.map(m2ll);
     if(P.length>1){gRule.addLayer(L.polyline(ll,{color:'#003b44',weight:6,opacity:0.7,interactive:false}));gRule.addLayer(L.polyline(ll,{color:'#00e5ff',weight:3,interactive:false}));}
@@ -1216,6 +1264,45 @@ $('bRuDone').onclick=()=>ruler.toggle(false);
 $('bRuClear').onclick=()=>{ruler.pts=[];ruler.draw();ruler.ui();};
 $('bRuUndo').onclick=()=>{ruler.pts.pop();ruler.draw();ruler.ui();};
 $('bRuGps').onclick=()=>{if(gps.last)ruler.add(gps.last.p);};
+
+/* ---------- field height points: the owner types the real height of a spot and the terrain adjusts around it ---------- */
+function applyZ(){DEM.rebuild(S.zpts);recalc();curv.redraw();drawAll();render();}
+const cota={on:false,p:null,
+  toggle(v){if(v&&tr.on){$('where2').textContent='Termine el trazador antes de registrar cotas.';return;}if(v){if(edit.on)edit.toggle(false);if(ruler.on)ruler.toggle(false);}
+    this.on=v;this.p=null;gCota.clearLayers();$('cotabar').hidden=!v;$('coZ').value='';if(v)setCol(true);else setTimeout(()=>map.invalidateSize(),30);this.ui();},
+  set(p){this.p=[+p[0].toFixed(2),+p[1].toFixed(2)];gCota.clearLayers();gCota.addLayer(L.marker(m2ll(this.p),{interactive:false,icon:L.divIcon({className:'',html:'<div class="q"></div>',iconSize:[0,0],iconAnchor:[10,10]})}));this.ui();},
+  ui(t){if(!this.on)return;let m;if(!this.p)m='Punto de cota: toque en el mapa el sitio cuya cota real conoce'+(gps.last?', o use su posición':'')+'.';
+    else{const z=DEM.at(this.p[0],this.p[1]);m='Escriba la cota real de este punto y pulse Guardar. '+(isFinite(z)?'El modelo marca '+fmt(z,1)+' m.':'El modelo no tiene cota aquí.');}
+    $('coMsg').textContent=t||m;$('bCoGps').hidden=!gps.last;},
+  save(){const z=parseFloat(String($('coZ').value).replace(',','.'));if(!this.p){this.ui('Primero toque el punto en el mapa o use su posición.');return;}
+    if(!isFinite(z)||z<=0||z>6000){this.ui('Escriba la cota en metros, por ejemplo 1052,4.');return;}
+    S.zpts.push({p:this.p,z:+z.toFixed(2),t:today()});S.edited=true;save();this.p=null;gCota.clearLayers();$('coZ').value='';applyZ();this.ui('Guardado. El terreno se ajustó alrededor de ese punto. Puede marcar otro.');}};
+$('bCoDone').onclick=()=>cota.toggle(false);$('bCoSave').onclick=()=>cota.save();
+$('bCoGps').onclick=()=>{if(!gps.last)return;if(gps.last.acc>15){cota.ui('La señal GPS está en ±'+fmt(gps.last.acc)+' m. Espere mejor precisión.');return;}cota.set(gps.last.p);};
+
+/* ---------- photos tied to a place; images stay in this phone ---------- */
+const idb={db:null,open(){return new Promise((res,rej)=>{if(this.db)return res(this.db);let r;try{r=indexedDB.open('rv-fotos-'+(DATA.id||'rv'),1);}catch(e){return rej(e);}
+    r.onupgradeneeded=()=>r.result.createObjectStore('f');r.onsuccess=()=>{this.db=r.result;res(this.db);};r.onerror=()=>rej(r.error);});},
+  tx(mode,fn){return this.open().then(db=>new Promise((res,rej)=>{const t=db.transaction('f',mode),q=fn(t.objectStore('f'));t.oncomplete=()=>res(q&&q.result);t.onerror=()=>rej(t.error);}));},
+  put(k,v){return this.tx('readwrite',s=>s.put(v,k));},get(k){return this.tx('readonly',s=>s.get(k));},del(k){return this.tx('readwrite',s=>s.delete(k));}};
+let fotoCur=-1,fotoUrl=null;
+function placeName(p){const i=S.lots.findIndex(l=>l.r.length>2&&inPoly(p,l.r));if(i>=0)return 'Lote '+S.lots[i].n;const f=S.feats.find(x=>x.g==='a'&&x.r.length>2&&inPoly(p,x.r));return f?f.n:'zona común';}
+function drawPhotos(){gPhotos.clearLayers();if(!ADMIN)return;S.photos.forEach((f,i)=>{const m=L.marker(m2ll(f.p),{icon:L.divIcon({className:'',html:'<div class="ph"></div>',iconSize:[26,22],iconAnchor:[13,11]})});m.on('click',e=>{L.DomEvent.stop(e);openPhoto(i);});gPhotos.addLayer(m);});}
+function openPhoto(i){const f=S.photos[i];if(!f)return;fotoCur=i;$('fotoBox').hidden=false;$('fotoNote').value=f.n||'';const meta=new Date(f.t).toLocaleString('es-CO',{dateStyle:'medium',timeStyle:'short'})+' · '+placeName(f.p);$('fotoMeta').textContent=meta;
+  $('fotoImg').removeAttribute('src');idb.get(f.id).then(b=>{if(fotoCur!==i)return;if(fotoUrl){URL.revokeObjectURL(fotoUrl);fotoUrl=null;}if(!b){$('fotoMeta').textContent=meta+' · la imagen no está guardada en este teléfono';return;}fotoUrl=URL.createObjectURL(b);$('fotoImg').src=fotoUrl;}).catch(()=>{$('fotoMeta').textContent=meta+' · no se pudo leer la imagen';});}
+function takePhoto(){$('fotoIn').value='';$('fotoIn').click();}
+$('fotoIn').onchange=()=>{const file=$('fotoIn').files&&$('fotoIn').files[0];if(!file)return;const here=gps.on&&gps.last;const c=map.getCenter(),p=here?gps.last.p:(lastTap||ll2m(c.lat,c.lng));
+  const im=new Image(),u=URL.createObjectURL(file);
+  im.onload=()=>{const k=Math.min(1,1400/Math.max(im.width,im.height)),cv=document.createElement('canvas');cv.width=Math.round(im.width*k);cv.height=Math.round(im.height*k);cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);URL.revokeObjectURL(u);
+    cv.toBlob(b=>{if(!b)return;const id='f'+Date.now();idb.put(id,b).then(()=>{S.photos.push({id,p:[+p[0].toFixed(2),+p[1].toFixed(2)],t:new Date().toISOString(),n:''});save();drawPhotos();openPhoto(S.photos.length-1);if(tab==='zonas')render();
+        $('where').textContent='Foto guardada';$('where2').textContent=here?'Quedó en su ubicación actual.':(lastTap?'Quedó en el último punto que consultó. Con Mi ubicación activa queda donde usted está.':'Quedó en el centro del mapa. Con Mi ubicación activa queda donde usted está.');})
+      .catch(()=>{$('where').textContent='No se pudo guardar la foto';$('where2').textContent='El navegador no dejó guardar la imagen en este teléfono.';});},'image/jpeg',0.82);};
+  im.onerror=()=>{URL.revokeObjectURL(u);$('where').textContent='No se pudo leer la imagen';$('where2').textContent='';};im.src=u;};
+$('bFoClose').onclick=()=>{$('fotoBox').hidden=true;fotoCur=-1;};
+$('fotoNote').onchange=()=>{const f=S.photos[fotoCur];if(f){f.n=$('fotoNote').value.trim();save();if(tab==='zonas')render();}};
+$('bFoGo').onclick=()=>{const f=S.photos[fotoCur];$('fotoBox').hidden=true;fotoCur=-1;if(f)map.setView(m2ll(f.p),Math.max(map.getZoom(),19.5));};
+$('bFoDel').onclick=function(){if(this.dataset.arm!=='1'){this.dataset.arm='1';this.textContent='Confirmar borrado';setTimeout(()=>{this.dataset.arm='';this.textContent='Borrar foto';},3500);return;}
+  this.dataset.arm='';this.textContent='Borrar foto';const f=S.photos[fotoCur];if(f){idb.del(f.id).catch(()=>{});S.photos.splice(fotoCur,1);save();drawPhotos();if(tab==='zonas')render();}$('fotoBox').hidden=true;fotoCur=-1;};
 
 /* ---------- publish the plan (geometry only) so visitors see the owner's edits ---------- */
 const TK='rv-pub:'+(DATA.id||'rv');
@@ -1244,7 +1331,12 @@ if(WEB&&!ADMIN&&DATA.repo){fetch(DATA.repo.file+'?t='+Date.now(),{cache:'no-stor
   if(Array.isArray(o.feats)){S.feats=o.feats.filter(f=>ok(f.r)&&f.r.length&&CAT[f.c]&&'alp'.includes(f.g)).map(f=>({c:f.c,n:String(f.n).slice(0,40),g:f.g,r:f.r}));
     S.cats={};Object.keys(o.cats||{}).forEach(k=>{if(CAT[k]&&/^#[0-9a-f]{6}$/i.test(o.cats[k]))S.cats[k]={col:o.cats[k]};});}
   else{S.feats=clone(DATA.feats0||[]);(o.zones||[]).filter(z=>ok(z.r)).forEach(z=>S.feats.push({c:'zona',n:String(z.n).slice(0,40),g:'a',r:z.r}));(o.drains||[]).filter(z=>ok(z.p)).forEach(z=>S.feats.push({c:'escorrentia',n:String(z.n).slice(0,40),g:'l',r:z.p}));}
-  selLot=-1;redraw();}).catch(()=>{});}
+  selLot=-1;redraw();focusLot();}).catch(()=>{});}
+
+/* a shared link can open the plan centred on one lot */
+const QL=(()=>{try{return new URLSearchParams(location.search).get('lote');}catch(e){return null;}})();
+function focusLot(){if(!QL)return;const i=S.lots.findIndex(l=>String(l.n).toLowerCase()===QL.toLowerCase());if(i<0||S.lots[i].r.length<3)return;selLot=i;drawLots();const l=S.lots[i];
+  map.fitBounds(L.latLngBounds(l.r.map(m2ll)),{padding:[70,70],maxZoom:19.5});$('where').textContent='Lote '+l.n;$('where2').textContent=ADMIN?(ST[l.st]+' · '+fmt(lotArea(l))+' m²'):'Este es el lote del enlace. Pulse Mi ubicación para ver dónde está usted.';}
 
 /* ---------- panels ---------- */
 let tab='vias',lotQ='',lotF='';
@@ -1278,28 +1370,72 @@ function vias(){const c=S.cfg;let h=tr.on?traceHtml():'';
       h+='<div class="tw"><table><thead><tr><th>Abscisa</th><th>Cota m</th><th>Pendiente</th></tr></thead><tbody>';
       p.seg.forEach(g=>{h+='<tr><td>'+ch(g.a.s)+' – '+ch(g.b.s)+'</td><td>'+fmt(g.a.z,1)+' → '+fmt(g.b.z,1)+'</td><td>'+(isFinite(g.g)?'<span class="pill '+CLSN[g.c]+'">'+(g.g>0?'+':'')+fmt(g.g,1)+' %</span>':'—')+'</td></tr>';});h+='</tbody></table></div>';}}
   return h;}
-function ppto(){const c=S.cfg;let h='<h2>Presupuesto de rodadura por pendiente</h2><p class="note">Los precios y rangos que aparecen son de ejemplo. Cámbielos por los suyos y el cálculo se actualiza.</p><div class="grid">';
-  h+='<label class="f">Ancho de calzada (m)<input id="c_width" type="number" step="0.1" min="1" value="'+c.width+'"></label>';
+const axW=a=>(a.w>0?a.w:S.cfg.width);
+function ppto(){const c=S.cfg;let h='<h2>Costos de vías</h2><p class="note">Los precios de superficie son de ejemplo y los de cunetas y obras arrancan en cero. Ponga los suyos y el cálculo se actualiza.</p><div class="grid">';
+  h+='<label class="f">Ancho general de calzada (m)<input id="c_width" type="number" step="0.1" min="1" value="'+c.width+'"></label>';
   h+='<label class="f">Pendiente baja hasta (%)<input id="c_t1" type="number" step="1" min="1" value="'+c.t1+'"></label>';
   h+='<label class="f">Pendiente media hasta (%)<input id="c_t2" type="number" step="1" min="2" value="'+c.t2+'"></label>';
   h+='<label class="f">Medir pendiente cada (m)<select id="c_step">'+[5,10,20].map(v=>'<option'+(v===c.step?' selected':'')+'>'+v+'</option>').join('')+'</select></label></div><div class="grid">';
   c.surf.forEach((s,i)=>{h+='<label class="f">Superficie '+(i+1)+'<input id="c_sn'+i+'" value="'+esc(s.n)+'"></label><label class="f">Precio por m² (COP)<input id="c_sp'+i+'" type="number" step="1000" min="0" value="'+s.p+'"></label>';});
   h+='</div><div class="grid">';['Pendiente baja','Pendiente media','Pendiente alta'].forEach((n,k)=>{h+='<label class="f">'+n+' usa<select id="c_use'+k+'">'+c.surf.map((s,i)=>'<option value="'+i+'"'+(c.use[k]===i?' selected':'')+'>'+esc(s.n)+'</option>').join('')+'</select></label>';});
-  h+='</div><div class="tw"><table><thead><tr><th>Tramo</th>'+c.surf.map(s=>'<th>'+esc(s.n)+' m</th>').join('')+'<th>Área m²</th><th>Costo</th></tr></thead><tbody>';
-  const TS=c.surf.map(()=>0);let TA=0,TC=0,noz=0;PROF.forEach((p,i)=>{const ls=c.surf.map(()=>0);[0,1,2].forEach(k=>ls[c.use[k]]+=p.len[k]);noz+=p.len[3];
-    const a=ls.reduce((x,y)=>x+y,0)*c.width,cost=ls.reduce((x,l,j)=>x+l*c.width*c.surf[j].p,0);ls.forEach((l,j)=>TS[j]+=l);TA+=a;TC+=cost;
-    h+='<tr><td>'+esc(S.axes[i].n)+'</td>'+ls.map(l=>'<td>'+fmt(l)+'</td>').join('')+'<td>'+fmt(a)+'</td><td>'+money(cost)+'</td></tr>';});
-  h+='</tbody><tfoot><tr><td>Total</td>'+TS.map(l=>'<td>'+fmt(l)+'</td>').join('')+'<td>'+fmt(TA)+'</td><td>'+money(TC)+'</td></tr></tfoot></table></div>';
-  h+='<p class="big" style="margin:10px 0 2px">'+money(TC)+'</p><p class="note">Solo superficie de rodadura: '+fmt(TS.reduce((x,y)=>x+y,0))+' m de vía por '+fmt(c.width,1)+' m de ancho. No incluye cunetas, alcantarillas, explanación ni AIU.'+(noz>1?' Hay '+fmt(noz)+' m sin cota que no entran en el cálculo.':'')+'</p>';return h;}
+  h+='</div><h2 class="sp">Rodadura por tramo</h2><p class="note">Deje el ancho vacío para usar el general, o escriba el de ese tramo.</p><div class="tw"><table><thead><tr><th>Tramo</th><th>Ancho m</th>'+c.surf.map(s=>'<th>'+esc(s.n)+' m</th>').join('')+'<th>Área m²</th><th>Costo</th></tr></thead><tbody>';
+  const TS=c.surf.map(()=>0);let TA=0,TC=0,TLen=0,noz=0;PROF.forEach((p,i)=>{const ls=c.surf.map(()=>0),w=axW(S.axes[i]);[0,1,2].forEach(k=>ls[c.use[k]]+=p.len[k]);noz+=p.len[3];TLen+=p.L;
+    const a=ls.reduce((x,y)=>x+y,0)*w,cost=ls.reduce((x,l,j)=>x+l*w*c.surf[j].p,0);ls.forEach((l,j)=>TS[j]+=l);TA+=a;TC+=cost;
+    h+='<tr><td>'+esc(S.axes[i].n)+'</td><td><input class="inp" id="w_'+i+'" type="number" step="0.1" min="0" value="'+(S.axes[i].w>0?S.axes[i].w:'')+'" placeholder="'+c.width+'" style="width:72px;min-height:32px;padding:4px 6px;text-align:right" aria-label="Ancho de '+esc(S.axes[i].n)+'"></td>'+ls.map(l=>'<td>'+fmt(l)+'</td>').join('')+'<td>'+fmt(a)+'</td><td>'+money(cost)+'</td></tr>';});
+  h+='</tbody><tfoot><tr><td>Total</td><td></td>'+TS.map(l=>'<td>'+fmt(l)+'</td>').join('')+'<td>'+fmt(TA)+'</td><td>'+money(TC)+'</td></tr></tfoot></table></div>';
+  const cl=c.cun.lados|0,CC=TLen*cl*(+c.cun.p||0);
+  h+='<h2 class="sp">Cunetas</h2><div class="grid"><label class="f">Cunetas<select id="c_cl"><option value="0"'+(cl===0?' selected':'')+'>Sin cunetas</option><option value="1"'+(cl===1?' selected':'')+'>A un lado</option><option value="2"'+(cl===2?' selected':'')+'>A ambos lados</option></select></label><label class="f">Precio por metro (COP)<input id="c_cp" type="number" step="1000" min="0" value="'+(+c.cun.p||0)+'"></label></div><p class="note">'+fmt(TLen*cl)+' m de cuneta: '+money(CC)+'.</p>';
+  let CI=0;h+='<h2 class="sp">Alcantarillas y obras de arte</h2><div class="tw"><table><thead><tr><th>Ítem</th><th>Cantidad</th><th>Valor unitario</th><th>Total</th><th></th></tr></thead><tbody>';
+  c.items.forEach((it,k)=>{const tt=(+it.q||0)*(+it.p||0);CI+=tt;const st='min-height:32px;padding:4px 6px';
+    h+='<tr><td><input class="inp" id="i_n'+k+'" value="'+esc(it.n)+'" style="'+st+';min-width:130px" aria-label="Nombre del ítem"></td><td><input class="inp" id="i_q'+k+'" type="number" min="0" step="1" value="'+(+it.q||0)+'" style="'+st+';width:70px;text-align:right" aria-label="Cantidad"></td><td><input class="inp" id="i_p'+k+'" type="number" min="0" step="1000" value="'+(+it.p||0)+'" style="'+st+';width:120px;text-align:right" aria-label="Valor unitario"></td><td>'+money(tt)+'</td><td><button class="btn danger" data-idel="'+k+'" style="min-height:32px;padding:3px 8px" aria-label="Quitar ítem">Quitar</button></td></tr>';});
+  h+='</tbody></table></div><div class="row" style="margin-top:8px"><button class="btn" id="i_add">Agregar ítem</button></div>';
+  h+='<h2 class="sp">Total</h2><div class="tw"><table><tbody><tr><td>Rodadura</td><td>'+money(TC)+'</td></tr><tr><td>Cunetas</td><td>'+money(CC)+'</td></tr><tr><td>Alcantarillas y obras</td><td>'+money(CI)+'</td></tr></tbody></table></div>';
+  h+='<p class="big" style="margin:10px 0 2px">'+money(TC+CC+CI)+'</p><p class="note">Costo directo de '+fmt(TLen)+' m de vía. No incluye explanación ni AIU.'+(noz>1?' Hay '+fmt(noz)+' m sin cota que no entran en la rodadura.':'')+'</p>';return h;}
+/* ---------- sales report ---------- */
+function repRows(){return S.lots.map(l=>({n:l.n,st:ST[l.st],a:Math.round(lotArea(l)),pm:Math.round(lotPrice(l)),neg:l.pp>0,v:Math.round(lotVal(l)),cl:l.cl||'',ct:l.ct||'',fd:l.fd||'',fp:l.fp||'',ob:l.ob||''}));}
+function repSum(){const T={};STK.forEach(k=>T[k]=[0,0,0]);S.lots.forEach(l=>{const x=T[l.st]||T.d;x[0]++;x[1]+=lotArea(l);x[2]+=lotVal(l);});return T;}
+function saveFile(name,text,type){try{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();a.remove();return true;}catch(e){return false;}}
+function repCsv(){const q=v=>'"'+String(v).replace(/"/g,'""')+'"',T=repSum();let o='﻿'+['Lote','Estado','Área m²','Precio m²','Negociado','Valor','Comprador','Contacto','Fecha','Forma de pago','Observaciones'].map(q).join(';')+'\r\n';
+  repRows().forEach(r=>{o+=[q(r.n),q(r.st),r.a,r.pm,q(r.neg?'Sí':'No'),r.v,q(r.cl),q(r.ct),q(r.fd),q(r.fp),q(r.ob)].join(';')+'\r\n';});
+  o+='\r\n'+['Resumen','Lotes','Área m²','Valor'].map(q).join(';')+'\r\n';STK.forEach(k=>{o+=[q(ST[k]),T[k][0],Math.round(T[k][1]),Math.round(T[k][2])].join(';')+'\r\n';});
+  saveFile('ventas-'+(DATA.id||'visor')+'-'+today()+'.csv',o,'text/csv;charset=utf-8');}
+function repPrint(){const T=repSum();let h='<h1>'+esc(DATA.name)+' · Informe de ventas</h1><div>'+dshow(today())+' · precio de lista vigente '+money(priceNow().p)+' por m²</div><h2>Resumen</h2><table><thead><tr><th>Estado</th><th>Lotes</th><th>Área m²</th><th>Valor</th></tr></thead><tbody>';
+  let a=0,b=0,c=0;STK.forEach(k=>{a+=T[k][0];b+=T[k][1];c+=T[k][2];h+='<tr><td>'+ST[k]+'</td><td>'+T[k][0]+'</td><td>'+fmt(T[k][1])+'</td><td>'+money(T[k][2])+'</td></tr>';});
+  h+='<tr><td><b>Total</b></td><td><b>'+a+'</b></td><td><b>'+fmt(b)+'</b></td><td><b>'+money(c)+'</b></td></tr></tbody></table><h2>Lotes</h2><table><thead><tr><th>Lote</th><th>Estado</th><th>Área m²</th><th>$ por m²</th><th>Valor</th><th>Comprador</th><th>Fecha</th><th>Forma de pago</th></tr></thead><tbody>';
+  repRows().forEach(r=>{h+='<tr><td>'+esc(r.n)+'</td><td>'+r.st+'</td><td>'+fmt(r.a)+'</td><td>'+fmt(r.pm)+(r.neg?' *':'')+'</td><td>'+money(r.v)+'</td><td>'+esc(r.cl)+'</td><td>'+esc(r.fd?dshow(r.fd):'')+'</td><td>'+esc(r.fp)+'</td></tr>';});
+  $('printArea').innerHTML=h+'</tbody></table><p>* precio negociado.</p>';try{window.print();}catch(e){}}
+/* ---------- AutoCAD export (DXF, real coordinates) ---------- */
+function dxfText(iv){const E0=DATA.origin[0],N0=DATA.origin[1],o=[],A=s=>String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\x20-\x7e]/g,'?'),f=v=>(+v).toFixed(3);
+  const LY=[['VISOR_VIA_EJE',2],['VISOR_VIA_TXT',2],['VISOR_LOTES',3],['VISOR_LOTES_TXT',7],['VISOR_CURVAS',8],['VISOR_CURVAS_MAESTRAS',30],['VISOR_COTAS_CAMPO',6]];
+  CATS.forEach((c,k)=>{if(S.feats.some(x=>x.c===c.id))LY.push(['VISOR_'+c.id.toUpperCase(),[4,6,30,1,5,134,7,150,140,40,34,82,8,36,9,94,5,8][k]||7]);});
+  o.push(0,'SECTION',2,'HEADER',9,'$ACADVER',1,'AC1009',9,'$INSUNITS',70,6,0,'ENDSEC',0,'SECTION',2,'TABLES',0,'TABLE',2,'LTYPE',70,1,0,'LTYPE',2,'CONTINUOUS',70,0,3,'Solid line',72,65,73,0,40,'0.0',0,'ENDTAB',0,'TABLE',2,'LAYER',70,LY.length);
+  LY.forEach(l=>o.push(0,'LAYER',2,l[0],70,0,62,l[1],6,'CONTINUOUS'));o.push(0,'ENDTAB',0,'ENDSEC',0,'SECTION',2,'ENTITIES');
+  const pl=(ly,P,closed,z)=>{o.push(0,'POLYLINE',8,ly,66,1,10,'0.0',20,'0.0',30,'0.0',70,closed?1:0);P.forEach(q=>o.push(0,'VERTEX',8,ly,10,f(q[0]+E0),20,f(q[1]+N0),30,f(z||0)));o.push(0,'SEQEND',8,ly);};
+  const tx=(ly,p,h,s)=>o.push(0,'TEXT',8,ly,10,f(p[0]+E0),20,f(p[1]+N0),30,'0.0',40,h,1,A(s));
+  S.axes.forEach(a=>{if(a.p.length<2)return;pl('VISOR_VIA_EJE',a.p,false);tx('VISOR_VIA_TXT',[a.p[0][0]+2,a.p[0][1]+2],3,a.n+' ('+Math.round(lineLen(a.p))+' m, ancho '+axW(a)+' m)');});
+  S.lots.forEach(l=>{if(l.r.length<3)return;pl('VISOR_LOTES',l.r,true);const c=cen(l.r);tx('VISOR_LOTES_TXT',[c[0]-4,c[1]+0.5],2.5,l.n);tx('VISOR_LOTES_TXT',[c[0]-4,c[1]-2.5],1.6,Math.round(lotArea(l))+' m2');});
+  S.feats.forEach(x=>{const ly='VISOR_'+x.c.toUpperCase();if(x.g==='p'){if(!x.r.length)return;o.push(0,'POINT',8,ly,10,f(x.r[0][0]+E0),20,f(x.r[0][1]+N0),30,'0.0');tx(ly,[x.r[0][0]+1.5,x.r[0][1]+1.5],2,x.n);return;}
+    if(x.r.length<(x.g==='a'?3:2))return;pl(ly,x.r,x.g==='a');tx(ly,[x.r[0][0]+1.5,x.r[0][1]+1.5],2,x.n+(x.dia?' '+x.dia:''));});
+  S.zpts.forEach(q=>{o.push(0,'POINT',8,'VISOR_COTAS_CAMPO',10,f(q.p[0]+E0),20,f(q.p[1]+N0),30,f(q.z));tx('VISOR_COTAS_CAMPO',[q.p[0]+1,q.p[1]+1],1.5,(+q.z).toFixed(2));});
+  let nc=0;if(iv>0){const cs=DEM.cell,idx=iv<0.5?1:iv<5?5:25;for(let j=0;j<DEM.ny-1;j++)for(let i=0;i<DEM.nx-1;i++){const a=DEM.g(i,j),b=DEM.g(i+1,j),c=DEM.g(i+1,j+1),d=DEM.g(i,j+1);if(!(isFinite(a)&&isFinite(b)&&isFinite(c)&&isFinite(d)))continue;
+    const lo=Math.min(a,b,c,d),hi=Math.max(a,b,c,d),x=i*cs,y=j*cs;for(let k=Math.ceil(lo/iv);k*iv<=hi;k++){const L0=+(k*iv).toFixed(3),P=[];
+      const e=(za,zb,xa,ya,xb,yb)=>{if((za<L0)!==(zb<L0)){const t=(L0-za)/(zb-za);P.push([xa+(xb-xa)*t,ya+(yb-ya)*t]);}};
+      e(a,b,x,y,x+cs,y);e(b,c,x+cs,y,x+cs,y+cs);e(c,d,x+cs,y+cs,x,y+cs);e(d,a,x,y+cs,x,y);const ly=Math.abs(L0/idx-Math.round(L0/idx))<1e-6?'VISOR_CURVAS_MAESTRAS':'VISOR_CURVAS';
+      for(let q=0;q+1<P.length;q+=2){o.push(0,'LINE',8,ly,10,f(P[q][0]+E0),20,f(P[q][1]+N0),30,f(L0),11,f(P[q+1][0]+E0),21,f(P[q+1][1]+N0),31,f(L0));nc++;}}}}
+  o.push(0,'ENDSEC',0,'EOF');return {text:o.join('\r\n')+'\r\n',nc};}
 function lotCard(){const l=S.lots[selLot];if(!l)return '<p class="note">Toque un lote en el mapa o en la lista para ver su ficha y cambiar número, área o estado.</p>';
   const pn=priceNow(),px=priceNext(),a=lotArea(l);let h='<div class="card"><div class="grid" style="margin-bottom:10px">';
   h+='<label class="f">Número del lote<input id="l_n" value="'+esc(l.n)+'"></label><label class="f">Área del lote (m²)<input id="l_a" type="number" step="1" min="0" value="'+(l.la>0?l.la:'')+'" placeholder="'+Math.round(l.a)+'"></label><label class="f">Precio negociado por m² (COP)<input id="l_p" type="number" step="1" min="0" value="'+(l.pp>0?l.pp:'')+'" placeholder="Precio de lista '+fmt(pn.p)+'"></label></div>';
   h+='<div class="seg" role="group" aria-label="Estado del lote">'+STK.map(k=>'<button class="'+k+'" data-st="'+k+'" aria-pressed="'+(l.st===k)+'">'+ST[k]+'</button>').join('')+'</div>';
-  h+='<p class="big" style="margin:10px 0 0">'+money(lotVal(l))+'</p><p class="note" style="margin:0">'+fmt(a)+' m² × '+money(lotPrice(l))+' por m², '+(l.pp>0?'precio negociado. A precio de lista serían '+money(a*pn.p)+'.':'precio de lista vigente.'+(px?' Desde el '+dshow(px.from)+': <b>'+money(a*px.p)+'</b>.':''))+' Área medida en el plano: '+fmt(l.a)+' m².'+(function(){const z=zStats(l.r);return z?' Terreno: '+zTxt(z)+', desnivel '+fmt(z.max-z.min)+' m.':' Sin puntos topográficos dentro del lote.';})()+'</p></div>';return h;}
+  h+='<p class="big" style="margin:10px 0 0">'+money(lotVal(l))+'</p><p class="note" style="margin:0">'+fmt(a)+' m² × '+money(lotPrice(l))+' por m², '+(l.pp>0?'precio negociado. A precio de lista serían '+money(a*pn.p)+'.':'precio de lista vigente.'+(px?' Desde el '+dshow(px.from)+': <b>'+money(a*px.p)+'</b>.':''))+' Área medida en el plano: '+fmt(l.a)+' m².'+(function(){const z=zStats(l.r);return z?' Terreno: '+zTxt(z)+', desnivel '+fmt(z.max-z.min)+' m.':' Sin puntos topográficos dentro del lote.';})()+'</p>';
+  h+='<details class="cl"'+((l.cl||l.fp||l.ob||l.fd||l.ct)?' open':'')+'><summary>Datos del comprador</summary><div class="grid" style="margin-bottom:8px"><label class="f">Comprador<input id="l_cl" value="'+esc(l.cl||'')+'" autocomplete="off"></label><label class="f">Contacto<input id="l_ct" value="'+esc(l.ct||'')+'" autocomplete="off"></label><label class="f">Fecha del negocio<input id="l_fd" type="date" value="'+esc(l.fd||'')+'"></label><label class="f">Forma de pago<input id="l_fp" value="'+esc(l.fp||'')+'" placeholder="Contado, cuotas, permuta…"></label></div><label class="f">Observaciones<textarea class="inp" id="l_ob" style="font-family:inherit;font-size:13px;min-height:60px">'+esc(l.ob||'')+'</textarea></label><p class="note" style="margin:8px 0 0">Estos datos quedan solo en este teléfono y en su respaldo. Nunca se publican.</p></details>';
+  if(WEB)h+='<div class="row" style="margin-top:10px"><button class="btn" id="l_link">Copiar enlace de este lote</button></div>';
+  return h+'</div>';}
 function lotes(){const pn=priceNow();const T={d:[0,0,0],r:[0,0,0],s:[0,0,0],v:[0,0,0]};S.lots.forEach(l=>{const t=T[l.st]||T.d;t[0]++;t[1]+=lotArea(l);t[2]+=lotVal(l);});
   let h='<div class="stats">'+STK.map(k=>'<div class="stat '+k+'"><b>'+T[k][0]+'</b><span>'+ST[k]+(T[k][0]===1?'':'s')+'</span><span>'+fmt(T[k][1])+' m²</span><span>'+money(T[k][2])+'</span></div>').join('')+'</div>';
   h+='<div id="lotC">'+lotCard()+'</div>';
-  h+='<div class="row" style="margin-bottom:8px"><input class="inp" id="lotQ" placeholder="Buscar lote, por ejemplo 27" value="'+esc(lotQ)+'" style="flex:1 1 140px;width:auto" aria-label="Buscar lote"><select class="inp" id="lotF" style="flex:0 1 150px;width:auto" aria-label="Filtrar por estado"><option value="">Todos</option>'+STK.map(k=>'<option value="'+k+'"'+(lotF===k?' selected':'')+'>'+ST[k]+'s</option>').join('')+'</select></div><div id="lotT">'+lotTable()+'</div>';return h;}
+  h+='<div class="row" style="margin-bottom:8px"><input class="inp" id="lotQ" placeholder="Buscar lote, por ejemplo 27" value="'+esc(lotQ)+'" style="flex:1 1 140px;width:auto" aria-label="Buscar lote"><select class="inp" id="lotF" style="flex:0 1 150px;width:auto" aria-label="Filtrar por estado"><option value="">Todos</option>'+STK.map(k=>'<option value="'+k+'"'+(lotF===k?' selected':'')+'>'+ST[k]+'s</option>').join('')+'</select></div><div id="lotT">'+lotTable()+'</div>';
+  if(WEB)h+='<h2 class="sp">Informe de ventas</h2><p class="note">Incluye todos los lotes con estado, área, valor y datos del comprador.</p><div class="row"><button class="btn" id="rp_csv">Descargar para Excel</button><button class="btn" id="rp_pdf">Imprimir o guardar PDF</button></div>';return h;}
 function lotTable(){const q=lotQ.trim().toLowerCase(),pn=priceNow();let n=0,ta=0,tv=0;let h='<div class="tw"><table><thead><tr><th>Lote</th><th>Estado</th><th>Área m²</th><th>$ por m²</th><th>Valor</th><th>Medida m²</th></tr></thead><tbody>';
   S.lots.forEach((l,i)=>{if(q&&!l.n.toLowerCase().includes(q))return;if(lotF&&l.st!==lotF)return;n++;const a=lotArea(l);ta+=a;tv+=lotVal(l);const big=l.la>0&&Math.abs(l.a-l.la)/l.la>0.04;
     h+='<tr class="click'+(i===selLot?' sel':'')+'" data-lot="'+i+'"><td>'+esc(l.n)+(l.ed?' ✎':'')+'</td><td><span class="pill '+STP[l.st]+'">'+ST[l.st]+'</span></td><td>'+fmt(a)+'</td><td>'+fmt(lotPrice(l))+(l.pp>0?' *':'')+'</td><td>'+money(lotVal(l))+'</td><td'+(big?' class="flag"':'')+'>'+fmt(l.a)+'</td></tr>';});
@@ -1308,28 +1444,37 @@ function mas(){const l=S.layers;const ck=(k,t)=>'<label class="chk"><input type=
   let h='<h2>Precio por metro cuadrado</h2><p class="note">El valor de cada lote usa el precio cuya fecha ya llegó. Agregue aquí los próximos cambios.</p>';
   S.prices.forEach((p,i)=>{h+='<div class="row" style="margin-bottom:8px"><label class="f" style="flex:1 1 130px">Vigente desde<input type="date" id="p_d'+i+'" value="'+esc(p.from)+'"></label><label class="f" style="flex:1 1 130px">Precio por m² (COP)<input type="number" id="p_p'+i+'" min="0" step="1" value="'+p.p+'"></label>'+(S.prices.length>1?'<button class="btn danger" data-pdel="'+i+'" style="align-self:flex-end" aria-label="Quitar este precio">Quitar</button>':'')+'</div>';});
   h+='<div class="row"><button class="btn" id="p_add">Agregar cambio de precio</button></div>';
-  h+='<h2 class="sp">Capas del mapa</h2>'+(WEB?ck('sat','Imagen satelital'):'')+ck('img','Plano de loteo')+ck('lots','Lotes')+ck('status','Color según el estado del lote')+ck('axes','Vías')+ck('feats','Zonas y elementos del proyecto')+ck('curvas','Curvas de nivel')+
+  h+='<h2 class="sp">Capas del mapa</h2>'+(WEB?ck('sat','Imagen satelital'):'')+ck('img','Plano de loteo')+ck('lots','Lotes')+ck('status','Color según el estado del lote')+ck('axes','Vías')+ck('feats','Zonas y elementos del proyecto')+ck('curvas','Curvas de nivel')+ck('fotos','Fotos')+
   '<label class="f" style="margin-top:8px;max-width:320px">Opacidad del plano de loteo<input id="ly_op" type="range" min="0.1" max="1" step="0.05" value="'+S.op+'"></label>';
-  h+='<p class="note" style="margin-top:8px">Las curvas de nivel salen de los puntos topográficos del plano: cada 0,5 m con el mapa bien acercado, cada 1 m un paso más lejos y cada 5 m o más en la vista general. Las líneas gruesas llevan la cota. Solo aparecen donde hay puntos levantados y son más confiables cerca de las vías.</p>';
+  h+='<p class="note" style="margin-top:8px">Las curvas de nivel salen de los puntos topográficos del plano: cada 0,2 m con el mapa al máximo acercamiento, cada 0,5 m y 1 m en los pasos siguientes, y cada 5 m o más en la vista general. Las líneas gruesas llevan la cota. Solo aparecen donde hay puntos levantados y son más confiables cerca de las vías.</p>';
   if(WEB)h+='<h2 class="sp">Compartir con visitantes</h2><p class="note">Quien abra este enlace ve el plano, la vía y su ubicación, sin edición, precios ni áreas. Usted decide si además ve el estado de cada lote.</p><label class="chk"><input type="checkbox" id="showSt"'+(S.showSt?' checked':'')+'> Mostrar a los visitantes el estado de cada lote</label><p class="note">Este cambio y sus ediciones les llegan cuando usted publica.</p><div class="row"><input class="inp" id="shareUrl" readonly style="flex:1 1 200px;width:auto" aria-label="Enlace para visitantes" value="'+esc(location.origin+location.pathname)+'"><button class="btn" id="bShare">Copiar enlace</button><button class="btn" id="bPrev">Ver como visitante</button></div>';
   if(WEB&&DATA.repo){const tk=pub.token(),d=S.pubAt?new Date(S.pubAt):null;
     h+='<h2 class="sp">Publicar mis cambios</h2><p class="note">Sube al plano de visitantes sus lotes, vías y los elementos de las categorías marcadas para visitantes, tal como están ahora. Nunca sube precios ni áreas; el estado de los lotes solo si usted lo activó arriba.</p>';
     if(!tk)h+='<div class="row"><input class="inp" id="pubTk" type="password" autocomplete="off" style="flex:1 1 200px;width:auto" placeholder="Llave de publicación de GitHub" aria-label="Llave de publicación de GitHub"><button class="btn" id="pubSave">Guardar llave</button></div>';
     else h+='<div class="row"><button class="btn pri" id="pubGo"'+(pub.busy?' disabled':'')+'>Publicar ahora</button><button class="btn" id="pubDrop">Quitar llave</button></div>';
     h+='<p class="note" style="margin-top:8px">'+(pub.msg?esc(pub.msg)+' ':'')+(d?'Última publicación: '+d.toLocaleString('es-CO',{dateStyle:'medium',timeStyle:'short'})+'. ':'Aún no ha publicado. ')+(tk&&pub.dirty()?'<b>Hay cambios sin publicar.</b>':'')+'</p>';}
+  if(WEB)h+='<h2 class="sp">Exportar a AutoCAD</h2><p class="note">Descarga un archivo DXF en coordenadas reales con vías, lotes, elementos, puntos de cota y curvas de nivel. Las curvas salen como líneas sueltas con su elevación.</p><div class="row"><label class="f" style="flex:1 1 150px">Curvas de nivel<select id="dxfIv"><option value="0">Sin curvas</option><option value="5">Cada 5 m</option><option value="1" selected>Cada 1 m</option><option value="0.5">Cada 0,5 m</option><option value="0.2">Cada 0,2 m (archivo grande)</option></select></label><button class="btn" id="bDxf" style="align-self:flex-end">Descargar DXF</button></div>';
   h+='<h2 class="sp">Ubicar por coordenadas</h2><div class="row"><input class="inp" id="coordIn" style="flex:1 1 160px;width:auto" placeholder="4.980061, -74.457791" aria-label="Coordenadas latitud, longitud"><button class="btn" id="bCoordGo">Ubicar</button></div>';
   h+='<h2 class="sp">Respaldo de sus cambios</h2><p class="note">Todo lo que edita queda guardado solo en este teléfono'+(saveOk?'':' (en este momento el navegador no está dejando guardar)')+'. Copie el respaldo de vez en cuando y guárdelo en un correo o nota; con él se recupera todo en otro equipo.</p>'+
   '<div class="row"><button class="btn" id="bk_copy">Copiar respaldo</button>'+(WEB?'<button class="btn" id="bk_dl">Descargar respaldo</button>':'')+'<button class="btn" id="bk_show">Restaurar un respaldo</button></div>'+
   '<div id="bk_box" hidden style="margin-top:8px"><textarea class="inp" id="bk_txt" placeholder="Pegue aquí el texto del respaldo" aria-label="Texto del respaldo"></textarea><div class="row" style="margin-top:8px"><button class="btn pri" id="bk_load">Restaurar</button><span id="bk_msg" class="note" style="margin:0"></span></div></div>';
-  h+='<h2 class="sp">Volver al plano original</h2><p class="note">Borra sus cambios de vías, lotes, estados y todos los elementos que haya creado. Conserva precios y colores.</p><div class="row"><button class="btn danger" id="bReset">Restablecer todo</button></div>';
+  h+='<h2 class="sp">Volver al plano original</h2><p class="note">Borra sus cambios de vías, lotes, estados, datos de compradores y todos los elementos que haya creado. Conserva precios, colores, fotos y puntos de cota.</p><div class="row"><button class="btn danger" id="bReset">Restablecer todo</button></div>';
   h+='<p class="note" style="margin-top:14px">Coordenadas del plano: MAGNA-SIRGAS Origen Nacional. Loteo ajustado sobre las vías del plano de AutoCAD con diferencia típica menor de 0,3 m.</p>';return h;}
 function zonas(){let h='<h2>Zonas y elementos del proyecto</h2><p class="note">Para crear uno, pulse Editar, escoja la categoría y pulse Nuevo. Toque una fila para verlo en el mapa.</p>';
+  const sf=S.feats[selFeat];if(sf){h+='<div class="card"><div class="grid" style="margin-bottom:0"><label class="f">Nombre<input id="f_n" value="'+esc(sf.n)+'"></label><label class="f">Categoría<select id="f_c">'+CATS.map(c=>'<option value="'+c.id+'"'+(c.id===sf.c?' selected':'')+'>'+esc(c.n)+'</option>').join('')+'</select></label>'+(sf.c==='acueducto'?'<label class="f">Diámetro y material<input id="f_dia" value="'+esc(sf.dia||'')+'" placeholder="Por ejemplo 2 pulgadas PVC"></label>':'')+'<label class="f">Notas<input id="f_nt" value="'+esc(sf.nt||'')+'"></label></div><p class="note" style="margin:8px 0 0">'+[GN[sf.g],fMeas(sf),'cota '+fZ(sf)+' m'].filter(Boolean).join(' · ')+'. Para mover o redibujar, use Editar.</p></div>';}
   if(!S.feats.length)h+='<p class="note">Aún no hay elementos.</p>';
   else{h+='<div class="tw"><table><thead><tr><th>Elemento</th><th>Medida</th><th>Cota m</th></tr></thead><tbody>';
     CATS.forEach(c=>{const ix=[];S.feats.forEach((f,i)=>{if(f.c===c.id)ix.push(i);});if(!ix.length)return;let ta=0,tl=0;ix.forEach(i=>{const f=S.feats[i];if(f.g==='a')ta+=area(f.r);if(f.g==='l')tl+=lineLen(f.r);});
       h+='<tr class="grp"><td colspan="3"><i class="sw" style="background:'+catCol(c.id)+'"></i>'+esc(c.n)+' · '+ix.length+(ta?' · '+fmt(ta)+' m²':'')+(tl?' · '+fmt(tl)+' m':'')+'</td></tr>';
       ix.forEach(i=>{const f=S.feats[i];h+='<tr class="click'+(i===selFeat?' sel':'')+'" data-feat="'+i+'"><td>'+esc(f.n)+(f.ed?' ✎':'')+'</td><td>'+(fMeas(f)||GN[f.g])+'</td><td>'+fZ(f)+'</td></tr>';});});
     h+='</tbody></table></div>';}
+  const aq={};S.feats.forEach(f=>{if(f.c==='acueducto'&&f.g==='l'){const k=f.dia||'sin diámetro';aq[k]=(aq[k]||0)+lineLen(f.r);}});
+  if(Object.keys(aq).length)h+='<p class="note" style="margin-top:8px">Acueducto por diámetro: '+Object.keys(aq).map(k=>esc(k)+': '+fmt(aq[k])+' m').join(' · ')+'.</p>';
+  h+='<h2 class="sp">Puntos de cota tomados en campo</h2><p class="note">Con el botón Cota del mapa usted registra la cota real de un punto y el terreno se corrige a su alrededor, hasta 45 m.</p>';
+  if(S.zpts.length){h+='<div class="tw"><table><thead><tr><th>Punto</th><th>Cota m</th><th>El plano decía</th><th></th></tr></thead><tbody>';
+    S.zpts.forEach((q,i)=>{const b=DEM.base(q.p[0],q.p[1]);h+='<tr><td>'+esc(placeName(q.p))+'</td><td>'+fmt(q.z,2)+'</td><td>'+(isFinite(b)?fmt(b,1)+' ('+(q.z-b>0?'+':'')+fmt(q.z-b,1)+')':'sin dato')+'</td><td><button class="btn danger" data-zdel="'+i+'" style="min-height:32px;padding:3px 8px" aria-label="Quitar punto de cota">Quitar</button></td></tr>';});h+='</tbody></table></div>';}
+  h+='<h2 class="sp">Fotos</h2>';if(!S.photos.length)h+='<p class="note">Con el botón Foto del mapa toma una foto y queda en el sitio donde usted está. Las imágenes se guardan solo en este teléfono y no entran en el respaldo.</p>';
+  else{h+='<div class="tw"><table><thead><tr><th>Fecha</th><th>Lugar</th><th>Nota</th></tr></thead><tbody>';S.photos.forEach((f,i)=>{h+='<tr class="click" data-foto="'+i+'"><td>'+new Date(f.t).toLocaleDateString('es-CO',{day:'numeric',month:'short'})+'</td><td>'+esc(placeName(f.p))+'</td><td style="white-space:normal;text-align:left">'+esc(f.n||'')+'</td></tr>';});h+='</tbody></table></div><p class="note" style="margin-top:8px">Las imágenes se guardan solo en este teléfono y no entran en el respaldo.</p>';}
   h+='<h2 class="sp">Categorías, colores y visibilidad</h2><p class="note">El color aplica a todos los elementos de la categoría. "Visitantes" decide si esa categoría se incluye al publicar.</p><div class="tw"><table><thead><tr><th>Categoría</th><th>Color</th><th>En mi mapa</th><th>Visitantes</th></tr></thead><tbody>';
   CATS.forEach(c=>{const n=S.feats.filter(f=>f.c===c.id).length;h+='<tr><td>'+esc(c.n)+(n?' ('+n+')':'')+'</td><td><input type="color" id="cc_'+c.id+'" value="'+catCol(c.id)+'" aria-label="Color de '+esc(c.n)+'"></td><td><input type="checkbox" id="co_'+c.id+'"'+(catOn(c.id)?' checked':'')+' aria-label="Ver '+esc(c.n)+' en mi mapa"></td><td><input type="checkbox" id="cp_'+c.id+'"'+(catPub(c.id)?' checked':'')+' aria-label="Mostrar '+esc(c.n)+' a visitantes"></td></tr>';});
   return h+'</tbody></table></div>';}
@@ -1344,12 +1489,26 @@ function wire(){const P=$('panel');
   const wireCard=()=>{const l=S.lots[selLot];if(!l)return;const n=$('l_n'),a=$('l_a');
     if(n)n.onchange=()=>{l.n=n.value.trim()||l.n;l.ed=true;S.edited=true;save();drawLots();render();};
     if(a)a.onchange=()=>{const v=Math.round(parseFloat(a.value));l.la=v>0?v:null;l.ed=true;S.edited=true;save();render();};
+    [['l_cl','cl'],['l_ct','ct'],['l_fd','fd'],['l_fp','fp'],['l_ob','ob']].forEach(([id,k])=>{const e=$(id);if(e)e.onchange=()=>{const v=e.value.trim();if(v)l[k]=v;else delete l[k];save();};});
+    const lk=$('l_link');if(lk)lk.onclick=()=>{const u=location.origin+location.pathname+'?lote='+encodeURIComponent(l.n);const ok=()=>{lk.textContent='Enlace copiado';setTimeout(()=>{lk.textContent='Copiar enlace de este lote';},2000);};const fb=()=>{$('where').textContent='Enlace del lote';$('where2').textContent=u;};try{navigator.clipboard.writeText(u).then(ok,fb);}catch(e){fb();}};
     const pp=$('l_p');if(pp)pp.onchange=()=>{const v=parseFloat(pp.value);l.pp=v>0?v:null;l.ed=true;S.edited=true;save();render();};
     P.querySelectorAll('button[data-st]').forEach(b=>b.onclick=()=>{l.st=b.dataset.st;S.edited=true;save();drawLots();render();});};
   wireRows();wireCard();
-  P.querySelectorAll('tr[data-feat]').forEach(r=>r.onclick=()=>{pickFeat(+r.dataset.feat);P.querySelectorAll('tr[data-feat]').forEach(x=>x.classList.toggle('sel',x===r));});
+  P.querySelectorAll('tr[data-feat]').forEach(r=>r.onclick=()=>{pickFeat(+r.dataset.feat);render();P.scrollTop=0;});
   CATS.forEach(c=>{const cc=$('cc_'+c.id),co=$('co_'+c.id),cp=$('cp_'+c.id),setc=(k,v)=>{S.cats[c.id]=Object.assign({},S.cats[c.id],{[k]:v});save();drawFeats();};
     if(cc)cc.onchange=()=>{setc('col',cc.value);render();};if(co)co.onchange=()=>setc('on',co.checked);if(cp)cp.onchange=()=>setc('pub',cp.checked);});
+  P.querySelectorAll('tr[data-foto]').forEach(r=>r.onclick=()=>openPhoto(+r.dataset.foto));
+  P.querySelectorAll('button[data-zdel]').forEach(b=>b.onclick=()=>{S.zpts.splice(+b.dataset.zdel,1);save();applyZ();});
+  const sf=S.feats[selFeat];if(sf){const fn=$('f_n'),fc=$('f_c'),fd=$('f_dia'),ft=$('f_nt');
+    if(fn)fn.onchange=()=>{sf.n=fn.value.trim()||sf.n;sf.ed=true;save();drawFeats();render();};if(fc)fc.onchange=()=>{sf.c=fc.value;sf.ed=true;save();drawFeats();render();};
+    if(fd)fd.onchange=()=>{const v=fd.value.trim();if(v)sf.dia=v;else delete sf.dia;save();render();};if(ft)ft.onchange=()=>{const v=ft.value.trim();if(v)sf.nt=v;else delete sf.nt;save();};}
+  S.axes.forEach((a,i)=>{const e=$('w_'+i);if(e)e.onchange=()=>{const v=parseFloat(e.value);if(v>0)a.w=+v.toFixed(2);else delete a.w;save();render();};});
+  const ccl=$('c_cl'),ccp=$('c_cp');if(ccl)ccl.onchange=()=>{S.cfg.cun.lados=+ccl.value;save();render();};if(ccp)ccp.onchange=()=>{S.cfg.cun.p=Math.max(0,+ccp.value||0);save();render();};
+  S.cfg.items.forEach((it,k)=>{const n=$('i_n'+k),q=$('i_q'+k),p=$('i_p'+k);if(n)n.onchange=()=>{it.n=n.value.trim()||it.n;save();};if(q)q.onchange=()=>{it.q=Math.max(0,+q.value||0);save();render();};if(p)p.onchange=()=>{it.p=Math.max(0,+p.value||0);save();render();};});
+  P.querySelectorAll('button[data-idel]').forEach(b=>b.onclick=()=>{S.cfg.items.splice(+b.dataset.idel,1);save();render();});
+  const ia=$('i_add');if(ia)ia.onclick=()=>{S.cfg.items.push({n:'Ítem nuevo',q:0,p:0});save();render();};
+  const rc=$('rp_csv');if(rc)rc.onclick=repCsv;const rpd=$('rp_pdf');if(rpd)rpd.onclick=repPrint;
+  const bx=$('bDxf');if(bx)bx.onclick=()=>{bx.textContent='Preparando…';setTimeout(()=>{const r=dxfText(+$('dxfIv').value);const ok=saveFile((DATA.id||'visor')+'-'+today()+'.dxf',r.text,'application/dxf');bx.textContent='Descargar DXF';$('where').textContent=ok?'Archivo de AutoCAD descargado':'No se pudo descargar';$('where2').textContent=ok?(r.nc?fmt(r.nc)+' segmentos de curva de nivel incluidos.':'Sin curvas de nivel.'):'';},30);};
   const ss=$('showSt');if(ss)ss.onchange=()=>{S.showSt=ss.checked;save();render();};
   const q=$('lotQ');if(q)q.oninput=()=>{lotQ=q.value;$('lotT').innerHTML=lotTable();wireRows();};
   const f=$('lotF');if(f)f.onchange=()=>{lotF=f.value;$('lotT').innerHTML=lotTable();wireRows();};
@@ -1374,9 +1533,9 @@ function wire(){const P=$('panel');
     try{navigator.clipboard.writeText(t).then(done,fb);}catch(e){fb();}};
   const bd=$('bk_dl');if(bd)bd.onclick=()=>{try{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S)],{type:'application/json'}));a.download='respaldo-'+(DATA.id||'visor')+'-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();}catch(e){}};
   const bs=$('bk_show');if(bs)bs.onclick=()=>{$('bk_box').hidden=!$('bk_box').hidden;};
-  const bl=$('bk_load');if(bl)bl.onclick=()=>{let o=null;try{o=JSON.parse($('bk_txt').value);}catch(e){}if(!load(o)){$('bk_msg').textContent='Ese texto no es un respaldo válido.';return;}selLot=-1;selAxis=0;selFeat=-1;save();redraw();$('where').textContent='Respaldo restaurado';$('where2').textContent='';};
+  const bl=$('bk_load');if(bl)bl.onclick=()=>{let o=null;try{o=JSON.parse($('bk_txt').value);}catch(e){}if(!load(o)){$('bk_msg').textContent='Ese texto no es un respaldo válido.';return;}DEM.rebuild(S.zpts);selLot=-1;selAxis=0;selFeat=-1;save();redraw();$('where').textContent='Respaldo restaurado';$('where2').textContent='';};
   const br=$('bReset');if(br)br.onclick=function(){if(this.dataset.arm!=='1'){this.dataset.arm='1';this.textContent='Confirmar: borrar mis cambios';setTimeout(()=>{this.dataset.arm='';this.textContent='Restablecer todo';},4000);return;}
-    const keep={cfg:S.cfg,prices:S.prices,layers:S.layers,op:S.op,cats:S.cats,showSt:S.showSt,pubAt:S.pubAt,pubHash:S.pubHash};S=Object.assign(fresh(),keep);selLot=-1;selAxis=0;selFeat=-1;save();redraw();$('where').textContent='Plano original restablecido';$('where2').textContent='';};}
+    const keep={cfg:S.cfg,prices:S.prices,layers:S.layers,op:S.op,cats:S.cats,showSt:S.showSt,pubAt:S.pubAt,pubHash:S.pubHash,photos:S.photos,zpts:S.zpts};S=Object.assign(fresh(),keep);selLot=-1;selAxis=0;selFeat=-1;save();redraw();$('where').textContent='Plano original restablecido';$('where2').textContent='';};}
 function goCoord(){const raw=$('coordIn').value,m=raw.match(/-?\d+(?:\.\d+)?/g);
   if(!m||m.length<2){$('where').textContent='No pude leer las coordenadas';$('where2').textContent='Escríbalas como latitud, longitud. Ejemplo: 4.980061, -74.457791';return;}
   let lat=parseFloat(m[0]),lon=parseFloat(m[1]);if(Math.abs(lat)>20){const t=lat;lat=lon;lon=t;}
@@ -1385,12 +1544,12 @@ function goCoord(){const raw=$('coordIn').value,m=raw.match(/-?\d+(?:\.\d+)?/g);
 $('pname').textContent=DATA.name;$('psub').textContent=ADMIN?DATA.sub:'Plano del proyecto';
 if(!ADMIN){$('where').textContent='Bienvenido a '+DATA.name;$('where2').textContent='Pulse Mi ubicación para ver en qué lote está, o toque el plano.';}
 if(OWNER&&PREV){$('bBack').hidden=false;$('bBack').onclick=()=>{try{sessionStorage.removeItem('rv-prev');}catch(e){}location.reload();};}
-redraw();
+redraw();focusLot();
 window.addEventListener('resize',()=>map.invalidateSize());
 setTimeout(()=>map.invalidateSize(),50);
 if(WEB&&'serviceWorker' in navigator&&location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(()=>{});}
 if(WEB&&ADMIN&&pub.token()&&pub.dirty()&&(!S.pubAt||Date.now()-new Date(S.pubAt).getTime()>864e5))setTimeout(()=>pub.go(true),3000);
-window.__rv={ADMIN,pub,ruler,zStats,setBear,curv,CATS,get BEAR(){return BEAR;},map,get S(){return S;},describe,ll2m,m2ll,PROF:()=>PROF,showPos,tr,gps,edit,priceNow,priceNext};
+window.__rv={ADMIN,pub,ruler,cota,DEM,dxfText,repCsv,applyZ,openPhoto,idb,gps,zBest,zStats,setBear,curv,CATS,get BEAR(){return BEAR;},map,get S(){return S;},describe,ll2m,m2ll,PROF:()=>PROF,showPos,tr,gps,edit,priceNow,priceNext};
 })();
 </script>
 
