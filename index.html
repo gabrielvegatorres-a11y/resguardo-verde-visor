@@ -9197,7 +9197,7 @@ if(OWNER&&PREV){$('bBack').hidden=false;$('bBack').onclick=()=>{try{sessionStora
 redraw();focusLot();
 window.addEventListener('resize',()=>map.invalidateSize());
 setTimeout(()=>map.invalidateSize(),50);
-if(WEB&&'serviceWorker' in navigator&&location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(()=>{});}
+if(WEB&&'serviceWorker' in navigator&&location.protocol==='https:'){navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(r=>{try{r.update();}catch(e){}}).catch(()=>{});}
 if(WEB&&ADMIN&&pub.token()&&pub.dirty()&&(!S.pubAt||Date.now()-new Date(S.pubAt).getTime()>864e5))setTimeout(()=>pub.go(true),3000);
 window.__rv={ADMIN,pub,ruler,roadPoly,roadEdges,cota,DEM,dxfText,repCsv,applyZ,openPhoto,idb,gps,zBest,zStats,setBear,curv,CATS,get BEAR(){return BEAR;},map,get S(){return S;},describe,ll2m,m2ll,PROF:()=>PROF,showPos,tr,gps,edit,priceNow,priceNext};
 })();
